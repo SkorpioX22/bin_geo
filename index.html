@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Binary Line Form</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+:root {
+  --bg:#000;
+  --fg:#fff;
+  --muted:#777;
+}
+
+* {
+  box-sizing: border-box;
+  font-family: "JetBrains Mono", monospace;
+}
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  overflow: hidden;
+}
+
+.ui {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 10;
+}
+
+h1 {
+  font-size: 1.1rem;
+  letter-spacing: 0.25em;
+  margin-bottom: 10px;
+}
+
+input {
+  width: 420px;
+  padding: 12px;
+  background: transparent;
+  border: 1px solid white;
+  color: white;
+  outline: none;
+}
+
+input::placeholder {
+  color: var(--muted);
+}
+
+button {
+  margin-top: 10px;
+  margin-right: 8px;
+  padding: 10px 16px;
+  background: black;
+  border: 1px solid white;
+  color: white;
+  cursor: pointer;
+  transition: 0.25s;
+}
+
+button:hover {
+  background: white;
+  color: black;
+}
+
+canvas {
+  position: absolute;
+  inset: 0;
+  cursor: grab;
+}
+
+canvas:active {
+  cursor: grabbing;
+}
+</style>
+</head>
+
+<body>
+
+<div class="ui">
+  <h1 id="title"></h1>
+  <p>(turn binary strings into complex geometry)</p>
+
+  <input id="binary" placeholder="each bit = one line. scroll and pan with mouse." />
+  <br>
+  <button id="reset">AUTO ZOOM</button>
+  <button id="clear">CLEAR</button>
+  <a href="https://github.com/SkorpioX22" target="_blank" style="color:white;text-decoration:underline">
+    created by skorpiox22
+  </a>
+</div>
+
+<canvas id="c"></canvas>
+
+<script>
+/* ================== TITLE REVEAL ================== */
+
+const titleText = "bin_geo";
+const glyphs = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#$%&";
+const titleEl = document.getElementById("title");
+
+let revealed = 0;
+const totalDuration = 2500; // ms
+const interval = totalDuration / titleText.length;
+
+function scrambleText() {
+  let output = "";
+  for (let i = 0; i < titleText.length; i++) {
+    if (i < revealed) {
+      output += titleText[i];
+    } else {
+      output += glyphs[Math.floor(Math.random() * glyphs.length)];
+    }
+  }
+  titleEl.textContent = output;
+}
+
+const revealTimer = setInterval(() => {
+  revealed++;
+  if (revealed > titleText.length) {
+    clearInterval(revealTimer);
+    titleEl.textContent = titleText;
+    return;
+  }
+}, interval);
+
+(function animateTitle() {
+  scrambleText();
+  if (revealed <= titleText.length) requestAnimationFrame(animateTitle);
+})();
+
+/* ================== CANVAS SETUP ================== */
+
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+
+let w, h;
+function resize() {
+  w = canvas.width = innerWidth;
+  h = canvas.height = innerHeight;
+}
+addEventListener("resize", resize);
+resize();
+
+/* ================== CONFIG ================== */
+
+const EASE_POINTS = 0.025;
+const EASE_VIEW   = 0.02;
+
+const BASE_STEP = 40;
+const TURN_0 = -Math.PI / 2.2;
+const TURN_1 =  Math.PI / 3;
+
+/* ================== VIEW STATE ================== */
+
+let zoom = 1, panX = 0, panY = 0;
+let targetZoom = 1, targetPanX = 0, targetPanY = 0;
+let autoFit = true;
+
+/* ================== SHAPE STATE ================== */
+
+let currentPoints = [];
+let targetPoints = [];
+
+/* ================== SHAPE ================== */
+
+function generatePolyline(binary) {
+  let x = 0, y = 0;
+  let angle = -Math.PI / 2;
+  const pts = [{ x, y }];
+
+  for (const bit of binary) {
+    angle += bit === "1" ? TURN_1 : TURN_0;
+    x += Math.cos(angle) * BASE_STEP;
+    y += Math.sin(angle) * BASE_STEP;
+    pts.push({ x, y });
+  }
+  return pts;
+}
+
+function computeAutoFitTargets(pts) {
+  if (pts.length < 2) return;
+
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+
+  for (const p of pts) {
+    minX = Math.min(minX, p.x);
+    maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y);
+    maxY = Math.max(maxY, p.y);
+  }
+
+  const shapeW = maxX - minX;
+  const shapeH = maxY - minY;
+
+  targetZoom = Math.min((w * 0.75) / shapeW, (h * 0.75) / shapeH);
+  targetPanX = w / 2 - ((minX + maxX) / 2) * targetZoom;
+  targetPanY = h / 2 - ((minY + maxY) / 2) * targetZoom;
+}
+
+/* ================== INPUT ================== */
+
+const input = document.getElementById("binary");
+input.addEventListener("input", () => {
+  input.value = input.value.replace(/[^01]/g, "");
+  targetPoints = generatePolyline(input.value);
+  if (autoFit) computeAutoFitTargets(targetPoints);
+  syncPointCounts();
+});
+
+document.getElementById("clear").onclick = () => {
+  input.value = "";
+  targetPoints = [];
+  currentPoints = [];
+};
+
+document.getElementById("reset").onclick = () => {
+  autoFit = true;
+  computeAutoFitTargets(targetPoints);
+};
+
+/* ================== MORPH ================== */
+
+function syncPointCounts() {
+  while (currentPoints.length < targetPoints.length)
+    currentPoints.push({ ...targetPoints[currentPoints.length - 1] });
+
+  while (currentPoints.length > targetPoints.length)
+    currentPoints.pop();
+}
+
+const lerp = (a, b, t) => a + (b - a) * t;
+
+/* ================== PAN & ZOOM ================== */
+
+let dragging = false;
+let lastX = 0, lastY = 0;
+
+canvas.addEventListener("mousedown", e => {
+  dragging = true;
+  autoFit = false;
+  lastX = e.clientX;
+  lastY = e.clientY;
+});
+
+addEventListener("mouseup", () => dragging = false);
+
+addEventListener("mousemove", e => {
+  if (!dragging) return;
+  panX += e.clientX - lastX;
+  panY += e.clientY - lastY;
+  targetPanX = panX;
+  targetPanY = panY;
+  lastX = e.clientX;
+  lastY = e.clientY;
+});
+
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  autoFit = false;
+
+  const scale = Math.exp(-e.deltaY * 0.001);
+  const mx = e.clientX;
+  const my = e.clientY;
+
+  panX = mx - (mx - panX) * scale;
+  panY = my - (my - panY) * scale;
+  zoom *= scale;
+
+  targetZoom = zoom;
+  targetPanX = panX;
+  targetPanY = panY;
+}, { passive: false });
+
+/* ================== DRAW ================== */
+
+function animate() {
+  ctx.clearRect(0, 0, w, h);
+
+  zoom = lerp(zoom, targetZoom, EASE_VIEW);
+  panX = lerp(panX, targetPanX, EASE_VIEW);
+  panY = lerp(panY, targetPanY, EASE_VIEW);
+
+  if (targetPoints.length > 1) {
+    for (let i = 0; i < targetPoints.length; i++) {
+      currentPoints[i].x = lerp(currentPoints[i].x, targetPoints[i].x, EASE_POINTS);
+      currentPoints[i].y = lerp(currentPoints[i].y, targetPoints[i].y, EASE_POINTS);
+    }
+
+    ctx.save();
+    ctx.translate(panX, panY);
+    ctx.scale(zoom, zoom);
+
+    ctx.beginPath();
+    ctx.moveTo(currentPoints[0].x, currentPoints[0].y);
+    for (let i = 1; i < currentPoints.length; i++) {
+      ctx.lineTo(currentPoints[i].x, currentPoints[i].y);
+    }
+
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 1.6 / zoom;
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  requestAnimationFrame(animate);
+}
+
+animate();
+</script>
+
+</body>
+</html>
