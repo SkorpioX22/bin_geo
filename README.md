@@ -6,7 +6,7 @@ zoom and pan as you wish.
 
 >*This repository uses custom licensing. Read the terms below.*
 >
->Copyright (c) 2026 Dave Cruz
+>**Copyright (c) 2026 Dave Cruz**
 >
 >All rights reserved.
 >
