@@ -4,6 +4,8 @@ https://skorpiox22.github.io/bin_geo/
 draw geometrical patterns from binary strings. 
 zoom and pan as you wish. 
 
+>*This repository uses custom licensing. Read the terms below.*
+>
 >Copyright (c) 2026 Dave Cruz
 >
 >All rights reserved.
