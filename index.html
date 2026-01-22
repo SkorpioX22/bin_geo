@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Binary Line Form</title>
+<title>bin_geo</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -24,11 +24,34 @@ html, body {
   overflow: hidden;
 }
 
+/* ===== UI ===== */
+
 .ui {
-  position: absolute;
+  position: fixed;
   top: 20px;
   left: 20px;
   z-index: 10;
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+.ui.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ui.reveal {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Hover trigger zone */
+#uiHoverZone {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 28px;
+  z-index: 9;
 }
 
 h1 {
@@ -75,23 +98,54 @@ canvas {
 canvas:active {
   cursor: grabbing;
 }
+
+/* ===== Screenshot toast ===== */
+
+.toast {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translate(-50%, 20px);
+  padding: 10px 18px;
+  border: 1px solid white;
+  background: black;
+  color: white;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
 </style>
 </head>
 
 <body>
 
-<div class="ui">
+<!-- Hover reveal strip -->
+<div id="uiHoverZone"></div>
+
+<div class="ui" id="ui">
   <h1 id="title"></h1>
   <p>(turn binary strings into complex geometry)</p>
 
   <input id="binary" placeholder="each bit = one line. scroll and pan with mouse." />
   <br>
+
   <button id="reset">AUTO ZOOM</button>
   <button id="clear">CLEAR</button>
+  <button id="toggleUI">HIDE UI</button>
+  <button id="shot">SCREENSHOT</button>
+
+  <br><br>
   <a href="https://github.com/SkorpioX22" target="_blank" style="color:white;text-decoration:underline">
     created by skorpiox22
   </a>
 </div>
+
+<div class="toast" id="toast">copied to clipboard</div>
 
 <canvas id="c"></canvas>
 
@@ -103,19 +157,17 @@ const glyphs = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#$%&";
 const titleEl = document.getElementById("title");
 
 let revealed = 0;
-const totalDuration = 2500; // ms
+const totalDuration = 2500;
 const interval = totalDuration / titleText.length;
 
 function scrambleText() {
-  let output = "";
+  let out = "";
   for (let i = 0; i < titleText.length; i++) {
-    if (i < revealed) {
-      output += titleText[i];
-    } else {
-      output += glyphs[Math.floor(Math.random() * glyphs.length)];
-    }
+    out += i < revealed
+      ? titleText[i]
+      : glyphs[Math.floor(Math.random() * glyphs.length)];
   }
-  titleEl.textContent = output;
+  titleEl.textContent = out;
 }
 
 const revealTimer = setInterval(() => {
@@ -123,7 +175,6 @@ const revealTimer = setInterval(() => {
   if (revealed > titleText.length) {
     clearInterval(revealTimer);
     titleEl.textContent = titleText;
-    return;
   }
 }, interval);
 
@@ -132,7 +183,7 @@ const revealTimer = setInterval(() => {
   if (revealed <= titleText.length) requestAnimationFrame(animateTitle);
 })();
 
-/* ================== CANVAS SETUP ================== */
+/* ================== CANVAS ================== */
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
@@ -160,12 +211,10 @@ let zoom = 1, panX = 0, panY = 0;
 let targetZoom = 1, targetPanX = 0, targetPanY = 0;
 let autoFit = true;
 
-/* ================== SHAPE STATE ================== */
+/* ================== SHAPE ================== */
 
 let currentPoints = [];
 let targetPoints = [];
-
-/* ================== SHAPE ================== */
 
 function generatePolyline(binary) {
   let x = 0, y = 0;
@@ -223,12 +272,62 @@ document.getElementById("reset").onclick = () => {
   computeAutoFitTargets(targetPoints);
 };
 
+/* ================== UI HIDE / HOVER ================== */
+
+const ui = document.getElementById("ui");
+const hoverZone = document.getElementById("uiHoverZone");
+const toggleBtn = document.getElementById("toggleUI");
+let uiHidden = false;
+
+toggleBtn.onclick = () => {
+  uiHidden = !uiHidden;
+  ui.classList.toggle("hidden", uiHidden);
+  toggleBtn.textContent = uiHidden ? "SHOW UI" : "HIDE UI";
+};
+
+hoverZone.addEventListener("mouseenter", () => {
+  if (uiHidden) ui.classList.add("reveal");
+});
+
+ui.addEventListener("mouseleave", () => {
+  if (uiHidden) ui.classList.remove("reveal");
+});
+
+/* ================== SCREENSHOT ================== */
+
+const toast = document.getElementById("toast");
+
+document.getElementById("shot").onclick = async () => {
+  ui.classList.add("hidden");
+
+  requestAnimationFrame(() => {
+    const off = document.createElement("canvas");
+    off.width = canvas.width;
+    off.height = canvas.height;
+    const offCtx = off.getContext("2d");
+
+    offCtx.fillStyle = "#000";
+    offCtx.fillRect(0, 0, off.width, off.height);
+    offCtx.drawImage(canvas, 0, 0);
+
+    off.toBlob(async blob => {
+      await navigator.clipboard.write([
+        new ClipboardItem({ "image/png": blob })
+      ]);
+
+      if (!uiHidden) ui.classList.remove("hidden");
+
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 1600);
+    });
+  });
+};
+
 /* ================== MORPH ================== */
 
 function syncPointCounts() {
   while (currentPoints.length < targetPoints.length)
     currentPoints.push({ ...targetPoints[currentPoints.length - 1] });
-
   while (currentPoints.length > targetPoints.length)
     currentPoints.pop();
 }
@@ -297,9 +396,8 @@ function animate() {
 
     ctx.beginPath();
     ctx.moveTo(currentPoints[0].x, currentPoints[0].y);
-    for (let i = 1; i < currentPoints.length; i++) {
+    for (let i = 1; i < currentPoints.length; i++)
       ctx.lineTo(currentPoints[i].x, currentPoints[i].y);
-    }
 
     ctx.strokeStyle = "#fff";
     ctx.lineWidth = 1.6 / zoom;
